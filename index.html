@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="author" content="Prosper Pissan AKA Pispros">
+    <script src="axios.js"></script>
+    <title>Rapports asana</title>
+    <style>
+        .container {
+            display: flex;
+            flex-flow: column;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 50vh;
+        }
+        .searchButton {
+            padding: 10px 20px;
+            background-color: rgba(255, 0, 0, 0.679);
+            border: unset;
+            width: 200px;
+            height: 40px;
+            font-weight: bold;
+            color: white;
+            border-radius: 7px;
+            cursor: pointer;
+        }
+        .listSelection select {
+            width: 200px;
+            height: 45px;
+            border: 1px rgb(228, 228, 228) solid;
+            padding: 10px;
+        }
+        .listSelection input {
+            width: 200px;
+            height: 40px;
+            border: 1px rgb(228, 228, 228) solid;
+            padding: 0.5px;
+            padding-left: 5px;
+        }
+        .lds-roller {
+            display: inline-block;
+            position: relative;
+            width: 80px;
+            height: 80px;
+        }
+        .lds-roller div {
+        animation: lds-roller 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+        transform-origin: 40px 40px;
+        }
+        .lds-roller div:after {
+        content: " ";
+        display: block;
+        position: absolute;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #fff;
+        margin: -4px 0 0 -4px;
+        }
+        .lds-roller div:nth-child(1) {
+        animation-delay: -0.036s;
+        }
+        .lds-roller div:nth-child(1):after {
+        top: 63px;
+        left: 63px;
+        }
+        .lds-roller div:nth-child(2) {
+        animation-delay: -0.072s;
+        }
+        .lds-roller div:nth-child(2):after {
+        top: 68px;
+        left: 56px;
+        }
+        .lds-roller div:nth-child(3) {
+        animation-delay: -0.108s;
+        }
+        .lds-roller div:nth-child(3):after {
+        top: 71px;
+        left: 48px;
+        }
+        .lds-roller div:nth-child(4) {
+        animation-delay: -0.144s;
+        }
+        .lds-roller div:nth-child(4):after {
+        top: 72px;
+        left: 40px;
+        }
+        .lds-roller div:nth-child(5) {
+        animation-delay: -0.18s;
+        }
+        .lds-roller div:nth-child(5):after {
+        top: 71px;
+        left: 32px;
+        }
+        .lds-roller div:nth-child(6) {
+        animation-delay: -0.216s;
+        }
+        .lds-roller div:nth-child(6):after {
+        top: 68px;
+        left: 24px;
+        }
+        .lds-roller div:nth-child(7) {
+        animation-delay: -0.252s;
+        }
+        .lds-roller div:nth-child(7):after {
+        top: 63px;
+        left: 17px;
+        }
+        .lds-roller div:nth-child(8) {
+        animation-delay: -0.288s;
+        }
+        .lds-roller div:nth-child(8):after {
+        top: 56px;
+        left: 12px;
+        }
+        @keyframes lds-roller {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+        #loader {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: absolute;
+            top: 0;
+            left: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="loader">
+        <div class="lds-roller"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
+    </div>
+    <div class="container">
+        <h2>Génération de rapport de suivi de tâches</h2>
+        <div class="listSelection">
+            <input type="date" id="completed_since">
+        </div>
+        <br>
+        <button onclick="createCsvFile()" class="searchButton">Rechercher</button>
+    </div>
+</body>
+<script>
+    const endpoints = new Map();
+    let envData = {};
+    endpoints.set('me', 'https://app.asana.com/api/1.0/users/me');
+    endpoints.set('projects', 'https://app.asana.com/api/1.0/projects');
+    endpoints.set('users', {
+        mapping: (workspace_gid) => {
+            return `https://app.asana.com/api/1.0/workspaces/${workspace_gid}/users`;
+        }
+    });
+    endpoints.set('requestedTasks', {
+        mapping: (workspace_gid, user_gid, completed_since) => {
+            if (completed_since !== null && completed_since !== undefined) {
+                return `https://app.asana.com/api/1.0/tasks?workspace=${workspace_gid}&assignee=${user_gid}&opt_fields=name,start_at,start_on,created_at,completed_at,parent.name&completed_since=${completed_since}`;
+            }
+            return `https://app.asana.com/api/1.0/tasks?workspace=${workspace_gid}&assignee=${user_gid}&opt_fields=name,start_at,start_on,created_at,completed_at,parent.name`;
+        }
+    });
+    const _launchAppRequests = async () => {
+
+        // Get me
+        let request = await axios.get(endpoints.get('me'), { headers: {
+            authorization: `Bearer ${token}`
+        } });
+        envData.selectedWorkspace = request?.data?.data?.workspaces.find((item) => (item.name === "AMECQ"));
+
+        // Get List Projects
+        // request = await axios.get(endpoints.get('projects'), { headers: {
+        //     authorization: `Bearer ${token}`
+        // } });
+        // envData.listProjects = request?.data?.data?.find((item) => (item.name.indexOf("AMECQ") != -1));
+
+        // Get List Users in workspace
+        request = await axios.get(endpoints.get('users').mapping(envData.selectedWorkspace.gid), { headers: {
+            authorization: `Bearer ${token}`
+        }});
+        envData.listUsers = request?.data?.data;
+
+        createUserListSelection();
+        document.getElementById('loader').style.display = "none";
+    }
+    _launchAppRequests();
+
+    const createUserListSelection = () => {
+        const select = document.createElement('select');
+        select.setAttribute('id', 'listUsers')
+        for (let index = 0; index < envData.listUsers.length; index++) {
+            const element = envData.listUsers[index];
+            const option = document.createElement('option');
+            option.value = element.gid;
+            option.innerHTML = element.name;
+            select.appendChild(option);
+        }
+        document.querySelector('.listSelection').appendChild(select);
+    }
+
+    const createCsvFile = async () => {
+        document.getElementById('loader').style.display = "flex";
+        // Get requested final data
+        let completed_since = document.getElementById('completed_since');
+        if (!completed_since.value) {
+                request = await axios.get(endpoints.get('requestedTasks').mapping(envData?.selectedWorkspace?.gid, document.getElementById('listUsers').value), { headers: {
+                authorization: `Bearer ${token}`
+            }});
+        } else {
+            request = await axios.get(endpoints.get('requestedTasks').mapping(
+                envData?.selectedWorkspace?.gid, 
+                document.getElementById('listUsers').value,
+                new Date(completed_since?.value).toISOString()
+            ),
+            { headers: {
+                authorization: `Bearer ${token}`
+            }});
+        }
+        
+        envData.userTasks = request?.data?.data;
+        document.getElementById('loader').style.display = "none";
+
+        const listParentTasks = [];
+        listParentTasks.push(envData.userTasks[0]?.parent)
+        const listTasksOrderedByParent = new Map();
+        for (let index = 0; index < envData.userTasks.length; index++) {
+            let canPushInParentTab = true;
+            const element = envData.userTasks[index];
+            for (let subIndex = 0; subIndex < listParentTasks.length; subIndex++) {
+                const parent = listParentTasks[subIndex];
+                if (parent?.gid === element?.parent?.gid) {
+                    canPushInParentTab = false;
+                    break;
+                }
+            }
+            if (canPushInParentTab && element?.parent?.name != "NPM START") {
+                listParentTasks.push(element?.parent);
+            }
+        }
+
+        // Create List Tasks Ordered by parents
+        for (let index = 0; index < listParentTasks.length; index++) {
+            const element = listParentTasks[index];
+            if (element) {
+                const currentParenttTasks = [];
+                for (let index = 0; index < envData?.userTasks.length; index++) {
+                    const task = envData?.userTasks[index];
+                    
+                    if (task?.parent?.gid === element?.gid) {
+                        currentParenttTasks.push({
+                            name: String(task?.name).replaceAll(',', ';'),
+                            created_at: new Date(task?.created_at).toLocaleString().replace(',', ' à'),
+                            completed_at: task?.completed_at !== null ? new Date(task?.completed_at).toLocaleString().replace(',', ' à') : "",
+                        })
+                    }
+                }
+                listTasksOrderedByParent.set(element.gid, {
+                    name: element.name,
+                    tasks: currentParenttTasks
+                });
+            }
+        }
+        // Create Header Row
+        const selectedUser = envData?.listUsers?.find((user) => (user.gid === document.getElementById('listUsers').value))
+        const csvRows = ['\uFEFF']
+        csvRows.push(`Suivi de ${selectedUser?.name},, Nom tâche, Créé le, Terminé le,\n`);
+        csvRows.push(`\n`);
+
+        // Insert Rows Data
+        for (let index = 0; index < listParentTasks.length; index++) {
+            const element = listParentTasks[index];
+            if (element) {
+                csvRows.push(`${element?.name} \n`);
+                const parentTasks = listTasksOrderedByParent.get(element?.gid);
+                for (let subIndex = 0; subIndex < parentTasks?.tasks.length; subIndex++) {
+                    const task = parentTasks?.tasks[subIndex];
+                    csvRows.push([',', ...Object.values(task), '\n'].join(','));
+                }
+                csvRows.push('\n')
+            }
+        }
+
+        // Launch Csv
+        download(csvRows);
+    }
+
+    const download = function (data) {
+        // Creating a Blob for having a csv file format 
+        // and passing the data with type
+        const blob = new Blob([data], { type: 'text/csv;charset=utf-8' });
+
+        // Creating an object for downloading url
+        const url = window.URL.createObjectURL(blob)
+
+        // Creating an anchor(a) tag of HTML
+        const a = document.createElement('a')
+
+        // Passing the blob downloading url 
+        a.setAttribute('href', url)
+
+        const selectedUser = envData?.listUsers?.find((user) => (user.gid === document.getElementById('listUsers').value))
+        // Setting the anchor tag attribute for downloading
+        // and passing the download file name
+        a.setAttribute('download', `Suivi ${selectedUser.name} ~ ${new Date().toLocaleString()}.csv`);
+
+        // Performing a download with click
+        a.click()
+    }
+</script>
+</html>
